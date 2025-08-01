@@ -9,7 +9,7 @@ type Container = Database['public']['Tables']['containers']['Row'];
 type Vehicle = Database['public']['Tables']['vehicles']['Row'];
 
 const THRESHOLDS = {
-    temperature: { low: 2, high: 8 }, // °C
+    temperature: { low: 2, high: 8 }, 
     humidity: { low: 30, high: 70 }, // %
     battery: { low: 20, high: 80 }, // %
 };
