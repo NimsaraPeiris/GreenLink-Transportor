@@ -69,7 +69,7 @@ export interface Database {
           temperature: number;
           humidity: number;
           battery_level: number;
-          assigned_to: string | null;
+          user_id: string | null;
           vehicle_id: number | null;
           complete_order: number | null;
           created_at: string;
@@ -88,7 +88,7 @@ export interface Database {
           temperature?: number;
           humidity?: number;
           battery_level?: number;
-          assigned_to?: string | null;
+          user_id?: string | null;
           vehicle_id?: number | null;
           complete_order?: number | null;
           created_at?: string;
@@ -107,7 +107,7 @@ export interface Database {
           temperature?: number;
           humidity?: number;
           battery_level?: number;
-          assigned_to?: string | null;
+          user_id?: string | null;
           vehicle_id?: number | null;
           complete_order?: number | null;
           created_at?: string;
