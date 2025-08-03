@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -6,15 +6,11 @@ import {
   Truck, 
   User, 
   HelpCircle, 
-  Leaf, 
-  LogOut,
-  Menu,
-  X
+  LogOut
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 const Sidebar: React.FC = () => {
-  const [isCollapsed, setIsCollapsed] = useState(false);
   const { signOut } = useAuth();
   const navigate = useNavigate();
 
@@ -32,29 +28,10 @@ const Sidebar: React.FC = () => {
   };
 
   return (
-    <div className={`flex flex-col h-full bg-white border-r border-secondary-200 transition-all duration-300 ${
-      isCollapsed ? 'w-20' : 'w-64'
-    }`}>
-      <div className="flex items-center justify-between px-4 py-6">
-        <div className="flex items-center">
-          <button
-            onClick={() => setIsCollapsed(!isCollapsed)}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            {isCollapsed ? (
-              <Menu className="h-6 w-6 text-gray-600" />
-            ) : (
-              <X className="h-6 w-6 text-gray-600" />
-            )}
-          </button>
-          {!isCollapsed && (
-            <>
-              <Leaf className="h-8 w-8 text-primary-600 ml-2" />
-              <span className="ml-2 text-xl font-semibold text-secondary-900">GreenLink</span>
-            </>
-          )}
-        </div>
+    <div className="flex flex-col h-full bg-white border-r border-secondary-200 w-64">
+      <div className="flex items-center px-4 py-6">
+        <Truck className="h-8 w-8 text-green-600" />
+        <span className="ml-2 text-xl font-semibold text-secondary-900">GreenLink</span>
       </div>
       
       <div className="flex-1 px-2 space-y-1">
@@ -63,28 +40,23 @@ const Sidebar: React.FC = () => {
             key={item.name}
             to={item.href}
             className={({ isActive }) => 
-              `nav-link ${isActive ? 'nav-link-active' : 'nav-link-inactive'} ${
-                isCollapsed ? 'justify-center' : ''
-              }`
+              `nav-link ${isActive ? 'nav-link-active' : 'nav-link-inactive'}`
             }
-            title={isCollapsed ? item.name : ''}
           >
-            <item.icon className={`h-5 w-5 ${isCollapsed ? '' : 'mr-3'}`} />
-            {!isCollapsed && item.name}
+            <item.icon className="h-5 w-5 mr-3" />
+            {item.name}
           </NavLink>
         ))}
       </div>
       
       <div className="px-2 py-4 border-t border-secondary-200">
         <button 
-          className={`nav-link nav-link-inactive w-full ${
-            isCollapsed ? 'justify-center' : 'justify-between'
-          }`}
+          className="nav-link nav-link-inactive w-full"
           onClick={handleSignOut}
         >
-          <div className={`flex items-center ${isCollapsed ? 'justify-center' : ''}`}>
-            <LogOut className={`h-5 w-5 ${isCollapsed ? '' : 'mr-3'}`} />
-            {!isCollapsed && 'Sign out'}
+          <div className="flex items-center">
+            <LogOut className="h-5 w-5 mr-3" />
+            Sign out
           </div>
         </button>
       </div>

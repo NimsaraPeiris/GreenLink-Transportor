@@ -5,10 +5,14 @@ type StatusType =
   | 'inactive'
   | 'warning'
   | 'pending' 
+  | 'confirmed'
   | 'processing' 
   | 'shipped' 
   | 'delivered' 
-  | 'cancelled';
+  | 'completed'
+  | 'cancelled'
+  | 'assigned'
+  | 'available';
 
 interface StatusBadgeProps {
   status: StatusType;

@@ -6,8 +6,7 @@ import {
   Building,
   Phone,
   MapPin,
-  Shield,
-  Edit3
+  Shield
 } from 'lucide-react';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -190,15 +189,15 @@ const Profile: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="max-w-7xl mx-auto p-6 space-y-8 animate-fade-in">
        {message && (
         <div className={`p-4 rounded-md text-sm ${message.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
           {message.text}
         </div>
       )}
-      <div>
-        <h1 className="text-2xl font-semibold text-secondary-900">Profile</h1>
-        <p className="mt-1 text-secondary-500">
+      <div className="space-y-2 mb-8">
+        <h1 className="text-3xl font-bold text-gray-900">Profile</h1>
+        <p className="text-gray-600 text-lg">
           Manage your account information and preferences
         </p>
       </div>
@@ -208,32 +207,16 @@ const Profile: React.FC = () => {
           <Card>
             <div className="flex flex-col items-center pb-6">
               <div className="relative">
-                <img
-                  src={formData.avatar_url || user.avatar_url || 'https://via.placeholder.com/150'}
-                  alt={formData.name || user.name}
-                  className="h-24 w-24 rounded-full object-cover border-4 border-white shadow-md"
-                />
-                {isEditing && (
-                  <div className="mt-4">
-                    <label htmlFor="avatar-upload" className="cursor-pointer">
-                      <div className="flex items-center justify-center px-4 py-2 border border-secondary-300 rounded-md shadow-sm text-sm font-medium text-secondary-700 bg-white hover:bg-secondary-50">
-                        <Edit3 className="h-4 w-4 mr-2" />
-                        Change Photo
-                      </div>
-                      <input
-                        id="avatar-upload"
-                        name="avatar"
-                        type="file"
-                        className="sr-only"
-                        accept="image/*"
-                        onChange={handleAvatarUpload}
-                      />
-                    </label>
-                    {isUploading && (
-                      <p className="mt-2 text-xs text-secondary-500">Uploading image...</p>
-                    )}
-                  </div>
-                )}
+                <div className="h-24 w-24 rounded-full bg-gradient-to-br from-green-500 to-green-600 border-4 border-white shadow-md flex items-center justify-center">
+                  <span className="text-2xl font-bold text-white">
+                    {(isEditing ? formData.name : user.name)
+                      .split(' ')
+                      .map(word => word.charAt(0).toUpperCase())
+                      .slice(0, 2)
+                      .join('')
+                    }
+                  </span>
+                </div>
               </div>
 
               <h2 className="mt-4 text-xl font-semibold text-secondary-900">

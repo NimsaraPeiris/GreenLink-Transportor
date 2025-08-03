@@ -1,308 +1,420 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import type { Database } from '../types/supabase';
-import { ArrowPathIcon, BellIcon, ExclamationCircleIcon, CheckCircleIcon, CubeIcon } from '@heroicons/react/24/outline';
+import { 
+  ArrowPathIcon, 
+  TruckIcon, 
+  MapPinIcon, 
+  ClockIcon, 
+  CurrencyDollarIcon, 
+  PhoneIcon 
+} from '@heroicons/react/24/outline';
+import { CheckCircleIcon } from '@heroicons/react/24/solid';
 import toast from 'react-hot-toast';
 import DashboardLayout from '../components/DashboardLayout';
+import { OrderWithDetails } from '../types';
+import Card from '../components/ui/Card';
+import Button from '../components/ui/Button';
+import StatusBadge from '../components/ui/StatusBadge';
+import TrackingMap from '../components/layout/TrackingMap';
+import { calculateDistance, getTimeAgo } from '../utils';
+import { useAuth } from '../contexts/AuthContext';
+import { assignContainer, unassignContainer } from '../services/containerService';
 
-type Container = Database['public']['Tables']['containers']['Row'];
-type Vehicle = Database['public']['Tables']['vehicles']['Row'];
 
-const THRESHOLDS = {
-    temperature: { low: 2, high: 8 }, 
-    humidity: { low: 30, high: 70 }, // %
-    battery: { low: 20, high: 80 }, // %
-};
-
-const getStatusColor = (value: number, type: 'temperature' | 'humidity' | 'battery'): string => {
-    const threshold = THRESHOLDS[type];
-    if (value < threshold.low) return 'text-blue-600 bg-blue-100';
-    if (value > threshold.high) return 'text-red-600 bg-red-100';
-    return 'text-green-600 bg-green-100';
-};
-
-const getStatusMessage = (container: Container) => {
-    const messages: string[] = [];
-    
-    if (container.temperature < THRESHOLDS.temperature.low) {
-        messages.push(`Temperature too low: ${container.temperature}°C`);
-    } else if (container.temperature > THRESHOLDS.temperature.high) {
-        messages.push(`Temperature too high: ${container.temperature}°C`);
-    }
-    
-    if (container.humidity < THRESHOLDS.humidity.low) {
-        messages.push(`Humidity too low: ${container.humidity}%`);
-    } else if (container.humidity > THRESHOLDS.humidity.high) {
-        messages.push(`Humidity too high: ${container.humidity}%`);
-    }
-    
-    if (container.battery_level < THRESHOLDS.battery.low) {
-        messages.push(`Battery low: ${container.battery_level}%`);
-    }
-    
-    return messages;
-};
+interface ContainersState {
+  availableOrders: OrderWithDetails[];
+  isLoading: boolean;
+  isRefreshing: boolean;
+  error: string | null;
+  mapVisible: boolean;
+  currentOrder: OrderWithDetails | null;
+  userLocation: any; // Define proper type based on your location structure
+  routeCoordinates: any[]; // Define proper type based on your coordinates structure
+  isTracking: boolean;
+}
 
 const Containers = () => {
-    const [availableContainers, setAvailableContainers] = useState<Container[]>([]);
-    const [unassignedContainers, setUnassignedContainers] = useState<Container[]>([]);
-    const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [isRefreshing, setIsRefreshing] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
-    const [selectedContainerForAssignment, setSelectedContainerForAssignment] = useState<Container | null>(null);
-    const [selectedVehicleId, setSelectedVehicleId] = useState<number | null>(null);
+  const { user } = useAuth();
+  const [state, setState] = useState<ContainersState>({
+    availableOrders: [],
+    isLoading: true,
+    isRefreshing: false,
+    error: null,
+    mapVisible: false,
+    currentOrder: null,
+    userLocation: null,
+    routeCoordinates: [],
+    isTracking: false,
+  });
 
-    const fetchContainers = useCallback(async () => {
-        try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) throw new Error('Not authenticated');
+  const updateState = useCallback((updates: Partial<ContainersState>) => {
+    setState(prev => ({ ...prev, ...updates }));
+  }, []);
 
-            const [assignedResponse, unassignedResponse] = await Promise.all([
-                supabase
-                    .from('containers')
-                    .select('*')
-                    .not('assigned_to', 'is', null)
-                    .order('created_at', { ascending: false }),
-                supabase
-                    .from('containers')
-                    .select('*')
-                    .is('assigned_to', null)
-                    .order('created_at', { ascending: false })
-            ]);
+  const fetchOrders = useCallback(async () => {
+    try {
+      const { error, data } = await supabase
+        .from('orders')
+        .select('*, containers(name), users(name)')
+        .order('created_at', { ascending: false });
 
-            if (assignedResponse.error) throw assignedResponse.error;
-            if (unassignedResponse.error) throw unassignedResponse.error;
+      if (error) throw error;
 
-            setAvailableContainers(assignedResponse.data || []);
-            setUnassignedContainers(unassignedResponse.data || []);
-            setError(null);
-        } catch (err: any) {
-            setError(err.message);
-            console.error('Fetch error:', err);
-            toast.error('Failed to fetch containers');
-        }
-    }, []);
+      const formattedOrders: OrderWithDetails[] = data.map((order) => ({
+        ...order,
+        container_name: order.containers?.name,
+        user_name: order.users?.name
+      }));
 
-    const fetchVehicles = useCallback(async () => {
-        try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) throw new Error('Not authenticated');
+      updateState({ 
+        availableOrders: formattedOrders, 
+        error: null 
+      });
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to fetch orders';
+      updateState({ error: errorMessage });
+      console.error('Fetch error:', err);
+      toast.error(errorMessage);
+    }
+  }, [updateState]);
 
-            const { data: userData, error: userError } = await supabase
-                .from('users')
-                .select('id')
-                .eq('email', user.email)
-                .single();
-
-            if (userError || !userData) throw new Error('Failed to get user data');
-
-            const { data, error } = await supabase
-                .from('vehicles')
-                .select('*')
-                .eq('transporter_id', userData.id)
-                .order('created_at', { ascending: false });
-
-            if (error) throw error;
-            setVehicles(data || []);
-        } catch (err: any) {
-            console.error('Error fetching vehicles:', err);
-            toast.error('Failed to fetch vehicles');
-        }
-    }, []);
-
-    const handleRefresh = async () => {
-        setIsRefreshing(true);
-        await Promise.all([fetchContainers(), fetchVehicles()]);
-        setIsRefreshing(false);
-        toast.success('Data refreshed successfully');
-    };
-
-    useEffect(() => {
-        setIsLoading(true);
-        Promise.all([fetchContainers(), fetchVehicles()])
-            .finally(() => setIsLoading(false));
-    }, [fetchContainers, fetchVehicles]);
-
-    const openVehicleSelectionModal = (container: Container) => {
-        setSelectedContainerForAssignment(container);
-        setIsVehicleModalOpen(true);
-    };
-
-    const handleConfirmAssignment = async () => {
-        if (!selectedContainerForAssignment || !selectedVehicleId) {
-            toast.error('Please select a container and vehicle');
-            return;
-        }
-
-        try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) throw new Error('Not authenticated');
-
-            const { data: userData, error: userError } = await supabase
-                .from('users')
-                .select('id')
-                .eq('email', user.email)
-                .single();
-
-            if (userError || !userData) throw new Error('Failed to get user data');
-
-            const { error } = await supabase
-                .from('containers')
-                .update({
-                    assigned_to: userData.id,
-                    vehicle_id: selectedVehicleId,
-                    status: 'active'
-                })
-                .eq('id', selectedContainerForAssignment.id);
-
-            if (error) throw error;
-
-            await fetchContainers();
-            setIsVehicleModalOpen(false);
-            setSelectedContainerForAssignment(null);
-            setSelectedVehicleId(null);
-            toast.success('Container assigned successfully');
-        } catch (err: any) {
-            console.error('Assignment error:', err);
-            toast.error('Failed to assign container');
-        }
-    };
-
-    const handleCompleteOrder = async (container: Container) => {
-        try {
-            const { error } = await supabase
-                .from('containers')
-                .update({
-                    assigned_to: null,
-                    vehicle_id: null,
-                    status: 'inactive'
-                })
-                .eq('id', container.id);
-
-            if (error) throw error;
-
-            await fetchContainers();
-            toast.success('Order completed successfully');
-        } catch (err: any) {
-            console.error('Complete order error:', err);
-            toast.error('Failed to complete order');
-        }
-    };
-
-    if (isLoading) {
-        return (
-            <DashboardLayout>
-                <div className="flex items-center justify-center h-screen">
-                    <div className="animate-spin rounded-full h-12 w-12 border-4 border-green-500 border-t-transparent"></div>
-                </div>
-            </DashboardLayout>
-        );
+  const handleTakeOrder = useCallback(async (order: OrderWithDetails) => {
+    if (!user?.id) {
+      toast.error('User not authenticated');
+      return;
     }
 
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: 'confirmed' })
+        .eq('id', order.id);
+
+      if (error) throw error;
+      
+      // Assign container to user (vehicle_id can be null or a default value)
+      await assignContainer(order.container_id.toString(), user.id, '1'); // Using default vehicle ID
+      await fetchOrders();
+      toast.success('Order taken and container assigned successfully! You can now view the map and complete the order.');
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to take order';
+      console.error('Error taking order:', err);
+      toast.error(errorMessage);
+    }
+  }, [fetchOrders, user?.id]);
+
+  const handleRefresh = useCallback(async () => {
+    updateState({ isRefreshing: true });
+    await fetchOrders();
+    updateState({ isRefreshing: false });
+    toast.success('Data refreshed successfully');
+  }, [updateState, fetchOrders]);
+
+  const handleTrackOrder = useCallback((order: OrderWithDetails) => {
+    updateState({ 
+      currentOrder: order, 
+      mapVisible: true,
+      isTracking: true 
+    });
+  }, [updateState]);
+
+  const handleCompleteOrder = useCallback(async (order: OrderWithDetails) => {
+    if (!user?.id) {
+      toast.error('User not authenticated');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: 'completed' })
+        .eq('id', order.id);
+
+      if (error) throw error;
+
+      // Unassign container from user (using same default vehicle ID)
+      await unassignContainer(order.container_id.toString(), user.id, '1', order.id.toString());
+      await fetchOrders();
+      toast.success('Order completed and container unassigned successfully!');
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to complete order';
+      console.error('Error completing order:', err);
+      toast.error(errorMessage);
+    }
+  }, [fetchOrders, user?.id]);
+
+  const startLocationTracking = useCallback(() => {
+    updateState({ isTracking: true });
+    // Add your location tracking logic here
+  }, [updateState]);
+
+  const stopLocationTracking = useCallback(() => {
+    updateState({ isTracking: false });
+    // Add your stop tracking logic here
+  }, [updateState]);
+
+  const getCurrentLocation = useCallback((): Promise<{ lat: number; lng: number }> => {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('Geolocation is not supported by this browser'));
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          });
+        },
+        (error) => {
+          console.error('Error getting location:', error);
+          reject(error);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 60000
+        }
+      );
+    });
+  }, []);
+
+  const closeMap = useCallback(() => {
+    updateState({ 
+      mapVisible: false, 
+      currentOrder: null,
+      isTracking: false 
+    });
+  }, [updateState]);
+
+  useEffect(() => {
+    fetchOrders().finally(() => updateState({ isLoading: false }));
+  }, [fetchOrders, updateState]);
+
+  const renderOrderActions = useCallback((order: OrderWithDetails) => {
+    switch (order.status) {
+      case 'pending':
+        return (
+          <Button 
+            variant="primary" 
+            size="sm" 
+            className="flex-1"
+            icon={<TruckIcon className="h-4 w-4" />}
+            onClick={() => handleTakeOrder(order)}
+          >
+            Take Order
+          </Button>
+        );
+      
+      case 'confirmed':
+        return (
+          <div className="flex space-x-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="flex-1"
+              icon={<MapPinIcon className="h-4 w-4" />}
+              onClick={() => handleTrackOrder(order)}
+            >
+              View Map
+            </Button>
+            <Button 
+              variant="primary" 
+              size="sm" 
+              className="flex-1"
+              icon={<CheckCircleIcon className="h-4 w-4" />}
+              onClick={() => handleCompleteOrder(order)}
+            >
+              Complete Order
+            </Button>
+          </div>
+        );
+      
+      case 'processing':
+      case 'shipped':
+        return (
+          <div className="flex space-x-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="flex-1"
+              icon={<TruckIcon className="h-4 w-4" />}
+              onClick={() => handleTrackOrder(order)}
+            >
+              Track
+            </Button>
+            <Button 
+              variant="primary" 
+              size="sm" 
+              className="flex-1"
+              icon={<CheckCircleIcon className="h-4 w-4" />}
+              onClick={() => handleCompleteOrder(order)}
+            >
+              Complete
+            </Button>
+          </div>
+        );
+      
+      case 'completed':
+        return (
+          <div className="flex-1 text-center py-2 text-green-600 font-medium">
+            ✓ Completed
+          </div>
+        );
+      
+      case 'cancelled':
+        return (
+          <div className="flex-1 text-center py-2 text-red-600 font-medium">
+            ✗ Cancelled
+          </div>
+        );
+      
+      default:
+        return null;
+    }
+  }, [handleTakeOrder, handleTrackOrder, handleCompleteOrder]);
+
+  const renderOrderCard = useCallback((order: OrderWithDetails) => (
+    <Card 
+      key={order.id} 
+      className="hover:shadow-lg transition-all duration-200 border-l-4 border-l-blue-500"
+    >
+      <div className="flex justify-between items-start mb-4">
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900">
+            Order #{order.id}
+          </h3>
+          <p className="text-sm text-gray-500">
+            {order.container_name || `Container ${order.container_id}`}
+          </p>
+        </div>
+        <StatusBadge status={order.status} />
+      </div>
+
+      <div className="space-y-3 mb-4">
+        <div className="flex items-center text-sm text-gray-600">
+          <MapPinIcon className="h-4 w-4 mr-2 text-green-500 flex-shrink-0" />
+          <span className="font-medium">From:</span>
+          <span className="ml-1 truncate">{order.pickup_address}</span>
+        </div>
+        
+        <div className="flex items-center text-sm text-gray-600">
+          <MapPinIcon className="h-4 w-4 mr-2 text-red-500 flex-shrink-0" />
+          <span className="font-medium">To:</span>
+          <span className="ml-1 truncate">{order.drop_address}</span>
+        </div>
+        
+        <div className="flex items-center text-sm text-gray-600">
+          <CurrencyDollarIcon className="h-4 w-4 mr-2 text-green-600 flex-shrink-0" />
+          <span className="font-semibold text-green-600">Rs. {order.price}</span>
+          <span className="ml-2 text-xs bg-gray-100 px-2 py-1 rounded">
+            {calculateDistance(
+              order.pickup_lat, 
+              order.pickup_lng, 
+              order.drop_lat, 
+              order.drop_lng
+            )} km
+          </span>
+        </div>
+        
+        {order.buyer_phone && (
+          <div className="flex items-center text-sm text-gray-600">
+            <PhoneIcon className="h-4 w-4 mr-2 text-blue-500 flex-shrink-0" />
+            <span>{order.buyer_phone}</span>
+          </div>
+        )}
+        
+        <div className="flex items-center text-sm text-gray-500">
+          <ClockIcon className="h-4 w-4 mr-2 flex-shrink-0" />
+          <span>{getTimeAgo(order.created_at)}</span>
+        </div>
+      </div>
+
+      <div className="flex space-x-2">
+        {renderOrderActions(order)}
+      </div>
+    </Card>
+  ), [renderOrderActions]);
+
+  if (state.isLoading) {
     return (
-        <DashboardLayout>
-            <div className="p-6">
-                <div className="flex justify-between items-center mb-6">
-                    <h1 className="text-2xl font-bold text-gray-900">Container Management</h1>
-                    <button
-                        onClick={handleRefresh}
-                        disabled={isRefreshing}
-                        className="flex items-center px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50"
-                    >
-                        <ArrowPathIcon className={`h-5 w-5 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-                        Refresh
-                    </button>
-                </div>
-
-                {error && (
-                    <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-                        {error}
-                    </div>
-                )}
-
-                <div className="space-y-6">
-                    {/* Unassigned Containers */}
-                    <div className="bg-white rounded-lg shadow p-6">
-                        <h2 className="text-xl font-semibold mb-4">Unassigned Containers</h2>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {unassignedContainers.map(container => (
-                                <div key={container.id} className="border rounded-lg p-4">
-                                    <h3 className="font-medium">{container.name}</h3>
-                                    <p className="text-sm text-gray-500">{container.location}</p>
-                                    <div className="mt-4">
-                                        <button
-                                            onClick={() => openVehicleSelectionModal(container)}
-                                            className="w-full px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
-                                        >
-                                            Assign Vehicle
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Assigned Containers */}
-                    <div className="bg-white rounded-lg shadow p-6">
-                        <h2 className="text-xl font-semibold mb-4">Assigned Containers</h2>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {availableContainers.map(container => (
-                                <div key={container.id} className="border rounded-lg p-4">
-                                    <h3 className="font-medium">{container.name}</h3>
-                                    <p className="text-sm text-gray-500">{container.location}</p>
-                                    <div className="mt-4">
-                                        <button
-                                            onClick={() => handleCompleteOrder(container)}
-                                            className="w-full px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
-                                        >
-                                            Complete Order
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Vehicle Assignment Modal */}
-                {isVehicleModalOpen && (
-                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
-                        <div className="bg-white rounded-lg p-6 max-w-md w-full">
-                            <h3 className="text-lg font-medium mb-4">Assign Vehicle</h3>
-                            <select
-                                value={selectedVehicleId || ''}
-                                onChange={(e) => setSelectedVehicleId(Number(e.target.value))}
-                                className="w-full p-2 border rounded mb-4"
-                            >
-                                <option value="">Select a vehicle</option>
-                                {vehicles.map(vehicle => (
-                                    <option key={vehicle.id} value={vehicle.id}>
-                                        {vehicle.plate_number} - {vehicle.model}
-                                    </option>
-                                ))}
-                            </select>
-                            <div className="flex justify-end space-x-2">
-                                <button
-                                    onClick={() => setIsVehicleModalOpen(false)}
-                                    className="px-4 py-2 border rounded"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleConfirmAssignment}
-                                    className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
-                                >
-                                    Confirm
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-            </div>
-        </DashboardLayout>
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-screen">
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-green-500 border-t-transparent"></div>
+        </div>
+      </DashboardLayout>
     );
+  }
+
+  return (
+    <DashboardLayout>
+      <div className="p-6 bg-gray-50 min-h-screen">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Transport Orders</h1>
+            <p className="text-gray-600 mt-1">Manage and track all delivery orders</p>
+          </div>
+          <Button 
+            onClick={handleRefresh} 
+            disabled={state.isRefreshing}
+            variant="primary"
+            icon={
+              <ArrowPathIcon 
+                className={`h-5 w-5 ${state.isRefreshing ? 'animate-spin' : ''}`} 
+              />
+            }
+          >
+            Refresh
+          </Button>
+        </div>
+
+        {/* Error Message */}
+        {state.error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 flex items-center">
+            <svg className="w-5 h-5 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path 
+                fillRule="evenodd" 
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" 
+                clipRule="evenodd" 
+              />
+            </svg>
+            {state.error}
+          </div>
+        )}
+
+        {/* Orders Content */}
+        {state.availableOrders.length === 0 ? (
+          <Card className="text-center py-12">
+            <div className="mx-auto w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+              <TruckIcon className="w-8 h-8 text-gray-400" />
+            </div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No Orders Available</h3>
+            <p className="text-gray-500">There are currently no orders to display.</p>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {state.availableOrders.map(renderOrderCard)}
+          </div>
+        )}
+
+        {/* Tracking Map */}
+        {state.mapVisible && state.currentOrder && (
+          <TrackingMap
+            order={state.currentOrder}
+            userLocation={state.userLocation}
+            routeCoordinates={state.routeCoordinates}
+            isTracking={state.isTracking}
+            setMapVisible={closeMap}
+            stopLocationTracking={stopLocationTracking}
+            startLocationTracking={startLocationTracking}
+            getCurrentLocation={getCurrentLocation}
+          />
+        )}
+      </div>
+    </DashboardLayout>
+  );
 };
 
 export default Containers;

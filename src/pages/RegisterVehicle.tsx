@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import DashboardLayout from '../components/DashboardLayout';
 import toast from 'react-hot-toast';
@@ -14,6 +14,8 @@ type VehicleFormData = {
 const RegisterVehicle = () => {
     const navigate = useNavigate();
     const [isLoading, setIsLoading] = useState(false);
+    const [isEditMode, setIsEditMode] = useState(false);
+    const [vehicleId, setVehicleId] = useState<string | null>(null);
     const [formData, setFormData] = useState<VehicleFormData>({
         plate_number: '',
         model: '',
@@ -21,7 +23,49 @@ const RegisterVehicle = () => {
         status: 'active'
     });
 
-    const handleSubmit = async (e: React.FormEvent) => {
+const loadUserVehicle = async () => {
+    try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error('Not authenticated');
+
+        const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('id')
+            .eq('email', user.email)
+            .single();
+
+        if (userError || !userData) throw new Error('Failed to get user data');
+
+        const { data: vehicleData, error: vehicleError } = await supabase
+            .from('vehicles')
+            .select('*')
+            .eq('transporter_id', userData.id)
+            .single();
+
+        if (!vehicleError && vehicleData) {
+            setFormData({
+                plate_number: vehicleData.plate_number,
+                model: vehicleData.model,
+                capacity: vehicleData.capacity,
+                status: vehicleData.status
+            });
+            setIsEditMode(true);
+            setVehicleId(vehicleData.id);
+        } else {
+            setIsEditMode(false);
+            setVehicleId(null);
+        }
+    } catch (error) {
+        console.error('Error loading vehicle:', error);
+    }
+};
+
+useEffect(() => {
+    loadUserVehicle();
+}, []);
+
+
+const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
 
@@ -38,19 +82,29 @@ const RegisterVehicle = () => {
 
             if (userError || !userData) throw new Error('Failed to get user data');
 
-            // Insert the vehicle with the user's ID as transporter_id
-            const { error } = await supabase
-                .from('vehicles')
-                .insert([
-                    {
+            let error;
+            
+            if (isEditMode && vehicleId) {
+                // Update existing vehicle
+                const { error: updateError } = await supabase
+                    .from('vehicles')
+                    .update(formData)
+                    .eq('id', vehicleId);
+                error = updateError;
+            } else {
+                // Insert new vehicle
+                const { error: insertError } = await supabase
+                    .from('vehicles')
+                    .insert({
                         ...formData,
                         transporter_id: userData.id,
-                    }
-                ]);
+                    });
+                error = insertError;
+            }
 
             if (error) throw error;
 
-            toast.success('Vehicle registered successfully');
+            toast.success(isEditMode ? 'Vehicle updated successfully' : 'Vehicle registered successfully');
             navigate('/vehicles'); // Redirect to vehicles list
         } catch (error: any) {
             console.error('Error registering vehicle:', error);
@@ -73,8 +127,16 @@ const RegisterVehicle = () => {
             <div className="p-4">
                 <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-lg p-8 border border-gray-100">
                     <h1 className="text-2xl font-bold mb-6 bg-gradient-to-r from-green-600 to-green-700 bg-clip-text text-transparent">
-                        Register New Vehicle
+                        {isEditMode ? 'Edit Your Vehicle' : 'Register Vehicle'}
                     </h1>
+                    
+                    {isEditMode && (
+                        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                            <p className="text-sm text-blue-700">
+                                📝 You already have a vehicle registered. You can edit the details below.
+                            </p>
+                        </div>
+                    )}
 
                     <form onSubmit={handleSubmit} className="space-y-6">
                         <div>
@@ -148,7 +210,10 @@ const RegisterVehicle = () => {
                             disabled={isLoading}
                             className="w-full px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-green-600 to-green-700 rounded-lg hover:from-green-700 hover:to-green-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed transform transition-all duration-200 hover:scale-105"
                         >
-                            {isLoading ? 'Registering...' : 'Register Vehicle'}
+                            {isLoading 
+                                ? (isEditMode ? 'Updating...' : 'Registering...') 
+                                : (isEditMode ? 'Update Vehicle' : 'Register Vehicle')
+                            }
                         </button>
                     </form>
                 </div>

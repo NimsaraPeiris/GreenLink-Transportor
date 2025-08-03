@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { subscribeToContainerUpdates, unsubscribeFromContainerUpdates } from '../services/containerService';
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL!,
@@ -46,7 +47,20 @@ export function useSupabaseData<T>({ table, filter, orderBy }: SupabaseQueryOpti
       }
     };
 
+    const subscription = subscribeToContainerUpdates((payload) => {
+      const updated = payload.new;
+      setData((prevData) =>
+        prevData.map((item) =>
+          item.id === updated.id ? {...item, ...updated} : item
+        )
+      );
+    });
+
     fetchData();
+
+    return () => {
+      unsubscribeFromContainerUpdates(subscription);
+    };
   }, [table, JSON.stringify(filter), JSON.stringify(orderBy)]);
 
   return { data, loading, error };
