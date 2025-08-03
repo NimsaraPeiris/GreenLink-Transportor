@@ -13,7 +13,17 @@ interface SupabaseQueryOptions {
   orderBy?: { column: string; ascending: boolean };
 }
 
-export function useSupabaseData<T>({ table, filter, orderBy }: SupabaseQueryOptions) {
+// Define a base interface that ensures T has an id property
+interface HasId {
+  id: string | number;
+}
+
+// Constrain T to extend HasId, ensuring it has an id property
+export function useSupabaseData<T extends HasId>({ 
+  table, 
+  filter, 
+  orderBy 
+}: SupabaseQueryOptions) {
   const [data, setData] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -37,8 +47,8 @@ export function useSupabaseData<T>({ table, filter, orderBy }: SupabaseQueryOpti
         }
 
         const { data, error } = await query;
-
         if (error) throw error;
+
         setData(data as T[]);
       } catch (err) {
         setError(err as Error);
@@ -51,7 +61,7 @@ export function useSupabaseData<T>({ table, filter, orderBy }: SupabaseQueryOpti
       const updated = payload.new;
       setData((prevData) =>
         prevData.map((item) =>
-          item.id === updated.id ? {...item, ...updated} : item
+          item.id === updated.id ? { ...item, ...updated } : item
         )
       );
     });

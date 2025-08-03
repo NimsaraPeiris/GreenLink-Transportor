@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { 
-  ArrowPathIcon, 
-  TruckIcon, 
-  MapPinIcon, 
-  ClockIcon, 
-  CurrencyDollarIcon, 
-  PhoneIcon 
+import {
+  ArrowPathIcon,
+  TruckIcon,
+  MapPinIcon,
+  ClockIcon,
+  CurrencyDollarIcon,
+  PhoneIcon
 } from '@heroicons/react/24/outline';
 import { CheckCircleIcon } from '@heroicons/react/24/solid';
 import toast from 'react-hot-toast';
@@ -18,8 +18,6 @@ import StatusBadge from '../components/ui/StatusBadge';
 import TrackingMap from '../components/layout/TrackingMap';
 import { calculateDistance, getTimeAgo } from '../utils';
 import { useAuth } from '../contexts/AuthContext';
-import { assignContainer, unassignContainer } from '../services/containerService';
-
 
 interface ContainersState {
   availableOrders: OrderWithDetails[];
@@ -28,8 +26,8 @@ interface ContainersState {
   error: string | null;
   mapVisible: boolean;
   currentOrder: OrderWithDetails | null;
-  userLocation: any; // Define proper type based on your location structure
-  routeCoordinates: any[]; // Define proper type based on your coordinates structure
+  userLocation: any;
+  routeCoordinates: any[];
   isTracking: boolean;
 }
 
@@ -66,9 +64,9 @@ const Containers = () => {
         user_name: order.users?.name
       }));
 
-      updateState({ 
-        availableOrders: formattedOrders, 
-        error: null 
+      updateState({
+        availableOrders: formattedOrders,
+        error: null
       });
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to fetch orders';
@@ -85,23 +83,46 @@ const Containers = () => {
     }
 
     try {
+      console.log('Taking order:', order.id);
+      
+      // Simple database update - just change status to confirmed
       const { error } = await supabase
         .from('orders')
         .update({ status: 'confirmed' })
         .eq('id', order.id);
 
       if (error) throw error;
-      
-      // Assign container to user (vehicle_id can be null or a default value)
-      await assignContainer(order.container_id.toString(), user.id, '1'); // Using default vehicle ID
-      await fetchOrders();
-      toast.success('Order taken and container assigned successfully! You can now view the map and complete the order.');
+
+      // Update container assignment
+      const { error: containerError } = await supabase
+        .from('containers')
+        .update({
+          assigned_to: 96, // Use sample user ID
+          vehicle_id: 1,   // Use sample vehicle ID
+          status: 'active'
+        })
+        .eq('id', order.container_id);
+
+      if (containerError) throw containerError;
+
+      console.log('Database updated, now updating UI state');
+
+      // Update the UI state immediately
+      setState(prev => ({
+        ...prev,
+        availableOrders: prev.availableOrders.map(o =>
+          o.id === order.id ? { ...o, status: 'confirmed' as const } : o
+        )
+      }));
+
+      console.log('UI state updated');
+      toast.success('Order taken successfully!');
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to take order';
       console.error('Error taking order:', err);
       toast.error(errorMessage);
     }
-  }, [fetchOrders, user?.id]);
+  }, [user?.id]);
 
   const handleRefresh = useCallback(async () => {
     updateState({ isRefreshing: true });
@@ -111,10 +132,10 @@ const Containers = () => {
   }, [updateState, fetchOrders]);
 
   const handleTrackOrder = useCallback((order: OrderWithDetails) => {
-    updateState({ 
-      currentOrder: order, 
+    updateState({
+      currentOrder: order,
       mapVisible: true,
-      isTracking: true 
+      isTracking: true
     });
   }, [updateState]);
 
@@ -125,6 +146,7 @@ const Containers = () => {
     }
 
     try {
+      // Simple database update - just change status to completed
       const { error } = await supabase
         .from('orders')
         .update({ status: 'completed' })
@@ -132,16 +154,33 @@ const Containers = () => {
 
       if (error) throw error;
 
-      // Unassign container from user (using same default vehicle ID)
-      await unassignContainer(order.container_id.toString(), user.id, '1', order.id.toString());
-      await fetchOrders();
-      toast.success('Order completed and container unassigned successfully!');
+      // Update container to unassign
+      const { error: containerError } = await supabase
+        .from('containers')
+        .update({
+          assigned_to: null,
+          vehicle_id: null,
+          status: 'inactive'
+        })
+        .eq('id', order.container_id);
+
+      if (containerError) throw containerError;
+
+      // Update the UI state immediately
+      setState(prev => ({
+        ...prev,
+        availableOrders: prev.availableOrders.map(o =>
+          o.id === order.id ? { ...o, status: 'completed' as const } : o
+        )
+      }));
+
+      toast.success('Order completed successfully!');
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to complete order';
       console.error('Error completing order:', err);
       toast.error(errorMessage);
     }
-  }, [fetchOrders, user?.id]);
+  }, [user?.id, updateState]);
 
   const startLocationTracking = useCallback(() => {
     updateState({ isTracking: true });
@@ -181,10 +220,10 @@ const Containers = () => {
   }, []);
 
   const closeMap = useCallback(() => {
-    updateState({ 
-      mapVisible: false, 
+    updateState({
+      mapVisible: false,
       currentOrder: null,
-      isTracking: false 
+      isTracking: false
     });
   }, [updateState]);
 
@@ -196,9 +235,9 @@ const Containers = () => {
     switch (order.status) {
       case 'pending':
         return (
-          <Button 
-            variant="primary" 
-            size="sm" 
+          <Button
+            variant="primary"
+            size="sm"
             className="flex-1"
             icon={<TruckIcon className="h-4 w-4" />}
             onClick={() => handleTakeOrder(order)}
@@ -206,22 +245,22 @@ const Containers = () => {
             Take Order
           </Button>
         );
-      
+
       case 'confirmed':
         return (
           <div className="flex space-x-2">
-            <Button 
-              variant="outline" 
-              size="sm" 
+            <Button
+              variant="outline"
+              size="sm"
               className="flex-1"
               icon={<MapPinIcon className="h-4 w-4" />}
               onClick={() => handleTrackOrder(order)}
             >
               View Map
             </Button>
-            <Button 
-              variant="primary" 
-              size="sm" 
+            <Button
+              variant="primary"
+              size="sm"
               className="flex-1"
               icon={<CheckCircleIcon className="h-4 w-4" />}
               onClick={() => handleCompleteOrder(order)}
@@ -230,54 +269,22 @@ const Containers = () => {
             </Button>
           </div>
         );
-      
-      case 'processing':
-      case 'shipped':
-        return (
-          <div className="flex space-x-2">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="flex-1"
-              icon={<TruckIcon className="h-4 w-4" />}
-              onClick={() => handleTrackOrder(order)}
-            >
-              Track
-            </Button>
-            <Button 
-              variant="primary" 
-              size="sm" 
-              className="flex-1"
-              icon={<CheckCircleIcon className="h-4 w-4" />}
-              onClick={() => handleCompleteOrder(order)}
-            >
-              Complete
-            </Button>
-          </div>
-        );
-      
+
       case 'completed':
         return (
           <div className="flex-1 text-center py-2 text-green-600 font-medium">
             ✓ Completed
           </div>
         );
-      
-      case 'cancelled':
-        return (
-          <div className="flex-1 text-center py-2 text-red-600 font-medium">
-            ✗ Cancelled
-          </div>
-        );
-      
+
       default:
         return null;
     }
   }, [handleTakeOrder, handleTrackOrder, handleCompleteOrder]);
 
   const renderOrderCard = useCallback((order: OrderWithDetails) => (
-    <Card 
-      key={order.id} 
+    <Card
+      key={order.id}
       className="hover:shadow-lg transition-all duration-200 border-l-4 border-l-blue-500"
     >
       <div className="flex justify-between items-start mb-4">
@@ -298,33 +305,33 @@ const Containers = () => {
           <span className="font-medium">From:</span>
           <span className="ml-1 truncate">{order.pickup_address}</span>
         </div>
-        
+
         <div className="flex items-center text-sm text-gray-600">
           <MapPinIcon className="h-4 w-4 mr-2 text-red-500 flex-shrink-0" />
           <span className="font-medium">To:</span>
           <span className="ml-1 truncate">{order.drop_address}</span>
         </div>
-        
+
         <div className="flex items-center text-sm text-gray-600">
           <CurrencyDollarIcon className="h-4 w-4 mr-2 text-green-600 flex-shrink-0" />
           <span className="font-semibold text-green-600">Rs. {order.price}</span>
           <span className="ml-2 text-xs bg-gray-100 px-2 py-1 rounded">
             {calculateDistance(
-              order.pickup_lat, 
-              order.pickup_lng, 
-              order.drop_lat, 
+              order.pickup_lat,
+              order.pickup_lng,
+              order.drop_lat,
               order.drop_lng
             )} km
           </span>
         </div>
-        
+
         {order.buyer_phone && (
           <div className="flex items-center text-sm text-gray-600">
             <PhoneIcon className="h-4 w-4 mr-2 text-blue-500 flex-shrink-0" />
             <span>{order.buyer_phone}</span>
           </div>
         )}
-        
+
         <div className="flex items-center text-sm text-gray-500">
           <ClockIcon className="h-4 w-4 mr-2 flex-shrink-0" />
           <span>{getTimeAgo(order.created_at)}</span>
@@ -356,13 +363,13 @@ const Containers = () => {
             <h1 className="text-3xl font-bold text-gray-900">Transport Orders</h1>
             <p className="text-gray-600 mt-1">Manage and track all delivery orders</p>
           </div>
-          <Button 
-            onClick={handleRefresh} 
+          <Button
+            onClick={handleRefresh}
             disabled={state.isRefreshing}
             variant="primary"
             icon={
-              <ArrowPathIcon 
-                className={`h-5 w-5 ${state.isRefreshing ? 'animate-spin' : ''}`} 
+              <ArrowPathIcon
+                className={`h-5 w-5 ${state.isRefreshing ? 'animate-spin' : ''}`}
               />
             }
           >
@@ -374,10 +381,10 @@ const Containers = () => {
         {state.error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 flex items-center">
             <svg className="w-5 h-5 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path 
-                fillRule="evenodd" 
-                d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" 
-                clipRule="evenodd" 
+              <path
+                fillRule="evenodd"
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                clipRule="evenodd"
               />
             </svg>
             {state.error}
