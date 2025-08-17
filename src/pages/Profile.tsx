@@ -1,11 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase'; // adjust path as needed
 import {
-  User,
   Mail,
   Building,
-  Phone,
-  MapPin,
   Shield
 } from 'lucide-react';
 import Card from '../components/ui/Card';
